@@ -1,8 +1,8 @@
 # Swedbank Laravel Payment API
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![PHP Version](https://img.shields.io/badge/php-%3E%3D8.1-blue.svg)](https://www.php.net/)
-[![GitHub](https://img.shields.io/github/v/release/LimeTools/swedbank?include_prereleases)](https://github.com/LimeTools/swedbank)
+[License: MIT](https://opensource.org/licenses/MIT)
+[PHP Version](https://www.php.net/)
+[GitHub](https://github.com/LimeTools/swedbank)
 
 A Laravel package for integrating with Swedbank Payment Initiation API V3. This package provides a clean and easy-to-use interface for initiating payments, checking payment status, and retrieving payment providers using Swedbank's Payment Initiation API.
 
@@ -31,7 +31,6 @@ You can install the package via Composer:
 ```bash
 composer require limetools/swedbank
 ```
-
 
 ### Publish Configuration
 
@@ -70,11 +69,13 @@ SWEDBANK_LOG_CHANNEL=swedbank
 ```
 
 **Important:** When storing the private key in `.env`, make sure to:
+
 - Wrap it in double quotes
 - Use `\n` for newlines
 - Keep the entire key on a single line
 
 Example:
+
 ```env
 SWEDBANK_PRODUCTION_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC...\n-----END PRIVATE KEY-----"
 ```
@@ -480,6 +481,7 @@ class PaymentController extends Controller
 Retrieves a list of available payment providers for the specified country.
 
 **Parameters:**
+
 - `$country` - Country code (e.g., 'LT', 'LV', 'EE')
 - `$clientId` - Your Swedbank client ID
 - `$privateKey` - Your private key for signing
@@ -491,6 +493,7 @@ Retrieves a list of available payment providers for the specified country.
 Creates a payment initiation and returns the redirect URL.
 
 **Parameters:**
+
 - `$paymentData` - Payment data array (see Swedbank V3 API documentation)
 - `$clientId` - Your Swedbank client ID
 - `$privateKey` - Your private key for signing
@@ -502,6 +505,7 @@ Creates a payment initiation and returns the redirect URL.
 Retrieves the current status of a payment.
 
 **Parameters:**
+
 - `$statusUrl` - Status URL from payment initiation response
 - `$clientId` - Your Swedbank client ID
 - `$privateKey` - Your private key for signing
@@ -513,12 +517,121 @@ Retrieves the current status of a payment.
 Gets payment initiation form data for a specific provider.
 
 **Parameters:**
+
 - `$bic` - Bank Identifier Code
 - `$paymentData` - Payment data array
 - `$clientId` - Your Swedbank client ID
 - `$privateKey` - Your private key for signing
 
 **Returns:** Form data array
+
+## EveryPay integration
+
+This package also includes a lightweight integration with the **EveryPay Payment Integration API v4** (see the official docs at `https://support.every-pay.com/apidoc/main/` and the OpenAPI spec at `https://support.every-pay.com/apidoc/main/openapi.yaml`).
+
+### Configuration
+
+After publishing the config (`php artisan vendor:publish --tag=swedbank-config`), you will also get an `everypay.php` config file:
+
+```php
+return [
+    'environment' => env('EVERYPAY_ENVIRONMENT', 'demo'), // demo or production
+
+    'demo' => [
+        'api_username' => env('EVERYPAY_DEMO_API_USERNAME'),
+        'api_secret'   => env('EVERYPAY_DEMO_API_SECRET'),
+        'account_name' => env('EVERYPAY_DEMO_ACCOUNT_NAME'),
+        'base_url'     => 'https://igw-demo.every-pay.com/api',
+    ],
+
+    'production' => [
+        'api_username' => env('EVERYPAY_PRODUCTION_API_USERNAME'),
+        'api_secret'   => env('EVERYPAY_PRODUCTION_API_SECRET'),
+        'account_name' => env('EVERYPAY_PRODUCTION_ACCOUNT_NAME'),
+        'base_url'     => 'https://pay.every-pay.eu/api',
+    ],
+];
+```
+
+Example `.env` for demo:
+
+```env
+EVERYPAY_ENVIRONMENT=demo
+
+EVERYPAY_DEMO_API_USERNAME=your_demo_username
+EVERYPAY_DEMO_API_SECRET=your_demo_secret
+EVERYPAY_DEMO_ACCOUNT_NAME=EUR3D1
+```
+
+### Basic usage
+
+The EveryPay client is exposed as `LimeTools\Swedbank\EveryPayApi` and is bound in the container, so you can type‑hint it:
+
+```php
+use LimeTools\Swedbank\EveryPayApi;
+
+class EveryPayController extends Controller
+{
+    public function __construct(
+        protected EveryPayApi $everyPay,
+    ) {}
+
+    public function start(Request $request)
+    {
+        // Replace with your own order fetch
+        $amount = 10.00;
+        $orderReference = 'ORDER-' . $request->user()->id . '-' . now()->timestamp;
+
+        $response = $this->everyPay->createOneOffPayment([
+            'amount'          => $amount,
+            'order_reference' => $orderReference,
+            'customer_url'    => route('everypay.callback'),
+            // optional extras:
+            // 'email'        => $request->user()->email,
+            // 'customer_ip'  => $request->ip(),
+            // 'payment_description' => 'Order #' . $orderReference,
+        ]);
+
+        // Redirect the user to the EveryPay hosted page
+        return redirect($response['payment_link']);
+    }
+
+    public function callback(Request $request)
+    {
+        $paymentReference = $request->query('payment_reference');
+
+        if (! $paymentReference) {
+            return redirect()->route('home')->with('error', 'Missing payment reference');
+        }
+
+        $status = $this->everyPay->getPaymentStatus($paymentReference);
+
+        // Example status handling
+        if (($status['payment_state'] ?? null) === 'settled') {
+            // Mark your order as paid here
+            return redirect()->route('home')->with('success', 'Payment successful');
+        }
+
+        return redirect()->route('home')->with('error', 'Payment not completed');
+    }
+}
+```
+
+You can also resolve the client manually:
+
+```php
+$everyPay = app(\LimeTools\Swedbank\EveryPayApi::class);
+// or
+$everyPay = app('everypay.api');
+```
+
+### EveryPayApi methods
+
+- `**createOneOffPayment(array $payload): array**`: wraps `POST /v4/payments/oneoff`.
+  - **Required fields** (either provided explicitly or filled from config): `account_name`, `amount`, `api_username`, `customer_url`, `nonce`, `order_reference`, `timestamp`.
+  - Returns the decoded JSON response (including `payment_link` and `payment_methods`).
+- `**getPaymentStatus(string $paymentReference): array`**: wraps `GET /v4/payments/{payment_reference}`.
+  - Returns the decoded payment status response so you can inspect `payment_state`, `processing_error`, `ob_details`, etc.
 
 ## Logging
 
@@ -591,8 +704,10 @@ This package is based on the official [Swedbank Payment Initiation API V3](https
 ## Changelog
 
 ### 1.0.0
+
 - Initial release
 - Swedbank Payment Initiation API V3 support
 - JWS authentication
 - Payment provider management
 - Payment status checking
+

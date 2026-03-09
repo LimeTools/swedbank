@@ -18,6 +18,11 @@ class SwedbankPaymentServiceProvider extends ServiceProvider
             'swedbank'
         );
 
+        $this->mergeConfigFrom(
+            __DIR__ . '/../config/everypay.php',
+            'everypay'
+        );
+
         $this->app->singleton(SwedbankPaymentApi::class, function ($app) {
             $isSandbox = config('swedbank.environment') === 'sandbox';
             return new SwedbankPaymentApi($isSandbox);
@@ -25,6 +30,13 @@ class SwedbankPaymentServiceProvider extends ServiceProvider
 
         // Register alias for facade
         $this->app->alias(SwedbankPaymentApi::class, 'swedbank.payment');
+
+        // EveryPay API binding
+        $this->app->singleton(EveryPayApi::class, function ($app) {
+            return new EveryPayApi();
+        });
+
+        $this->app->alias(EveryPayApi::class, 'everypay.api');
     }
 
     /**
@@ -36,6 +48,7 @@ class SwedbankPaymentServiceProvider extends ServiceProvider
     {
         $this->publishes([
             __DIR__ . '/../config/swedbank.php' => config_path('swedbank.php'),
+            __DIR__ . '/../config/everypay.php' => config_path('everypay.php'),
         ], 'swedbank-config');
     }
 }
